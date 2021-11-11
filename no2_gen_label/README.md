@@ -1,0 +1,1 @@
+use infer.sh to get annotation file
