@@ -3,6 +3,6 @@ python cdr_train.py \
 --num_workers 4  \
 --folder ~/dataset/last700 \
 --output_dir output \
---batch_size 64
+--batch_size 64 \
 --num_class 111
 
