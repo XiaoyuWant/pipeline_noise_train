@@ -55,7 +55,7 @@ def GenerateCleanDataset(model_path,out_file,dataset_path):
             nn.Linear(fc_inputs, 512),
             nn.ReLU(),
             nn.Linear(512, NUM_CLASS),
-            nn.LogSoftmax(dim=1)
+            #nn.LogSoftmax(dim=1)
         )
     model.load_state_dict(torch.load(model_path))
     model=model.cuda()
