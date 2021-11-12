@@ -100,7 +100,7 @@ NUM_EPOCH = args.num_epoch
 
 
 class DatasetFromAnnos(torch.utils.data.Dataset):
-    def __init__(self,root,transform):
+    def __init__(self,csv_file,transform):
         csv=pd.read_csv(args.csv_file_path,sep=',')
         self.transform=transform
         self.img_list=csv.filepath.tolist()
@@ -151,7 +151,7 @@ class ImageFolderMy(torch.utils.data.Dataset):
 # 2-8 分割
 
 #full_dataset=DatasetFromAnnos(root=trainDatapath,transform=image_transforms['train'])
-full_dataset=ImageFolderMy(root=args.folder,transform=image_transforms['train'])
+full_dataset=ImageFolderMy(csv_file=args.csv_file,transform=image_transforms['train'])
 train_size=int(len(full_dataset)*0.8)
 val_size=len(full_dataset)-train_size
 train_dataset,val_dataset=torch.utils.data.random_split(full_dataset,[train_size,val_size])
