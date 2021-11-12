@@ -48,28 +48,56 @@ image_transforms = {
                                     [0.229, 0.224, 0.225])
             ])
         }
+
+class ImageFolderMy(torch.utils.data.Dataset):
+    """
+    retrurn img,label,path
+    to generate [path:label] csv file
+    """
+    def __init__(self,root,transform):
+        classes=glob.glob(root+"/*")
+        self.transform=transform
+        self.imgs=[]
+        self.labels=[]
+        for i in range(len(classes)):
+            one=classes[i]
+            imgs=glob.glob(one+'/*.jpg')
+            labels=[i for _ in range(len(imgs))]
+            self.imgs+=imgs
+            self.labels+=labels
+    def __getitem__(self,index):
+        img=self.imgs[index]
+        path=img
+        label=self.labels[index]
+        img=Image.open(img).convert('RGB')
+        img=self.transform(img)
+        return img,label,path
+    def __len__(self):
+        return len(self.labels)
+
+
 def GenerateCleanDataset(model_path,out_file,dataset_path):
     model = tv_models.resnet50(pretrained=True)
-        fc_inputs = model.fc.in_features
-        model.fc = nn.Sequential(
-            nn.Linear(fc_inputs, 512),
-            nn.ReLU(),
-            nn.Linear(512, NUM_CLASS),
-            #nn.LogSoftmax(dim=1)
-        )
+    fc_inputs = model.fc.in_features
+    model.fc = nn.Sequential(
+        nn.Linear(fc_inputs, 512),
+        nn.ReLU(),
+        nn.Linear(512, args.num_class),
+        #nn.LogSoftmax(dim=1)
+    )
     model.load_state_dict(torch.load(model_path))
     model=model.cuda()
-    dataset=ImageFolder(root=dataset_path,transform=image_transforms['val'])
+    
+    dataset=ImageFolderMy(root=dataset_path,transform=image_transforms['val'])
     dataloader= torch.utils.data.DataLoader(dataset=dataset,
                                                batch_size=32,
                                                num_workers=4,
                                                drop_last=False,
-                                               shuffle=True,
-                                               pin_memory=True)
+                                               shuffle=False)
     clean_list=[]
     name=["filepath","label"]
     with torch.no_grad():
-        for imgs,labels,names in tqdm(dataloader):
+        for imgs,labels,paths in tqdm(dataloader):
             imgs=imgs.cuda()
             labels=labels.cuda()
             outs=model(imgs)
@@ -78,10 +106,11 @@ def GenerateCleanDataset(model_path,out_file,dataset_path):
             a=(pred1==labels)
             b=torch.where(a==True)
             for ind in b[0]:
-                index=names[ind.item()]
+                index=paths[ind.item()]
                 label=labels[ind.item()].item()
                 #print(index,label)
                 clean_list.append([index,label])
+
     df=pd.DataFrame(columns=name,data=clean_list)
     df.to_csv(out_file,index=False)
 
@@ -90,6 +119,7 @@ if __name__=='__main__':
     parser.add_argument('--model_path', type=str,help="load model path of cdr training")
     parser.add_argument('--annos_name', type=str,help="annotations csv file name")
     parser.add_argument('--dataset_folder', type=str,help="all dataset path")
+    parser.add_argument('--num_class', type=str,help="num_class to initiate mdoel ")
 
     args = parser.parse_args()
 
