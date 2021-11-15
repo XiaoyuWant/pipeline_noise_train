@@ -27,65 +27,18 @@ warnings.filterwarnings('ignore')
 import pandas as pd
 from tqdm import tqdm
 import os
+
+from utils.Model import LoadTransforms,LoadModel,ImageFolderMy
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-image_transforms = {
-            'train':transforms.Compose([
-                #transforms.ToPILImage(),
-                transforms.RandomResizedCrop(size=256, scale=(0.8, 1.0)),
-                transforms.RandomRotation(degrees=15),
-                transforms.RandomHorizontalFlip(),
-                transforms.CenterCrop(size=224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406],
-                                    [0.229, 0.224, 0.225])
-            ]),
-            'val':transforms.Compose([
-                transforms.Resize(size=256),
-                transforms.CenterCrop(size=224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406],
-                                    [0.229, 0.224, 0.225])
-            ])
-        }
+image_transforms = LoadTransforms()
 
-class ImageFolderMy(torch.utils.data.Dataset):
-    """
-    retrurn img,label,path
-    to generate [path:label] csv file
-    """
-    def __init__(self,root,transform):
-        classes=glob.glob(root+"/*")
-        self.transform=transform
-        self.imgs=[]
-        self.labels=[]
-        for i in range(len(classes)):
-            one=classes[i]
-            imgs=glob.glob(one+'/*.jpg')
-            labels=[i for _ in range(len(imgs))]
-            self.imgs+=imgs
-            self.labels+=labels
-    def __getitem__(self,index):
-        img=self.imgs[index]
-        path=img
-        label=self.labels[index]
-        img=Image.open(img).convert('RGB')
-        img=self.transform(img)
-        return img,label,path
-    def __len__(self):
-        return len(self.labels)
+
 
 
 def GenerateCleanDataset(model_path,out_file,dataset_path):
-    model = tv_models.resnet50(pretrained=True)
-    fc_inputs = model.fc.in_features
-    model.fc = nn.Sequential(
-        nn.Linear(fc_inputs, 512),
-        nn.ReLU(),
-        nn.Linear(512, args.num_class),
-        #nn.LogSoftmax(dim=1)
-    )
-    model.load_state_dict(torch.load(model_path))
+    model = LoadModel(name="resnet50",num_class=args.num_class,use_weight=True,weight_path=args.model_path)
+    
     model=model.cuda()
     
     dataset=ImageFolderMy(root=dataset_path,transform=image_transforms['val'])

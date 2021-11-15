@@ -23,6 +23,8 @@ import random
 from PIL import Image
 from PIL import ImageFile
 import pandas as pd
+from utils.Model import LoadTransforms,DatasetFromAnnos,ImageFolderMy,getAcc
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 #CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 torch_ddp.py
@@ -50,16 +52,6 @@ if not os.path.exists(args.output_file_path):
     os.mkdir(args.output_file_path)
 
 torch.backends.cudnn.benchmark=True
-# from tensorboardX import SummaryWriter
-# writer = SummaryWriter('food/runs/exp2')
-def set_seed(seed):
-    #必须禁用模型初始化中的任何随机性。
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    #torch.set_deterministic(True)
-set_seed(999)
 
 def reduce_loss(tensor, rank, world_size):
     with torch.no_grad():
@@ -67,25 +59,7 @@ def reduce_loss(tensor, rank, world_size):
         if rank == 0:
             tensor /= world_size
 
-image_transforms = {
-    'train':transforms.Compose([
-	    #transforms.ToPILImage(),
-        transforms.RandomResizedCrop(size=512, scale=(0.8, 1.0)),
-        transforms.RandomRotation(degrees=15),
-        transforms.RandomHorizontalFlip(),
-        transforms.CenterCrop(size=448),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                            [0.229, 0.224, 0.225])
-    ]),
-    'val':transforms.Compose([
-        transforms.Resize(size=512),
-        transforms.CenterCrop(size=448),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                            [0.229, 0.224, 0.225])
-    ])
-}
+
 
 
 
@@ -99,59 +73,15 @@ LR = args.lr
 NUM_EPOCH = args.num_epoch
 
 
-class DatasetFromAnnos(torch.utils.data.Dataset):
-    def __init__(self,csv_file,transform):
-        csv=pd.read_csv(args.csv_file_path,sep=',')
-        self.transform=transform
-        self.img_list=csv.filepath.tolist()
-        self.label_list=csv.label.tolist()
-    def __getitem__(self,index):
-        #print("FILE:{}".format(self.imgs[index]))
-        img=self.img_list[index]
-        label=self.label_list[index]
-        img=Image.open(img).convert('RGB')
-        img=self.transform(img)
-        return img,label
-    def __len__(self):
-        return len(self.label_list)
-
-
-class ImageFolderMy(torch.utils.data.Dataset):
-    def __init__(self,root,transform,imgsLimited=1000):
-        classes=glob.glob(root+"/*")
-        #print(classes)
-        print("number of classes is:",len(classes))
-        self.transform=transform
-        self.imgs=[]
-        self.labels=[]
-        for i in range(len(classes)):
-            one=classes[i]
-            imgs=glob.glob(one+'/*.jpg')
-            if(len(imgs)>imgsLimited):
-                imgs=imgs[:imgsLimited]
-            #print("img len:",len(imgs))
-            labels=[i for _ in range(len(imgs))]
-            #print("img len:",len(labels))
-            self.imgs+=imgs
-            self.labels+=labels
-    def __getitem__(self,index):
-        #print("FILE:{}".format(self.imgs[index]))
-        img=self.imgs[index]
-        label=self.labels[index]
-        img=Image.open(img).convert('RGB')
-        img=self.transform(img)
-        return img,label
-    def __len__(self):
-        return len(self.labels)
         
-
+image_transforms = LoadTransforms()
 # train_dataset=ImageFolder(root=trainDatapath,transform=image_transforms['train'])
 # val_dataset=ImageFolder(root=valDatapath,transform=image_transforms['val'])
 # Load Dataset 
 # 2-8 分割
 
 #full_dataset=DatasetFromAnnos(root=trainDatapath,transform=image_transforms['train'])
-full_dataset=ImageFolderMy(csv_file=args.csv_file,transform=image_transforms['train'])
+full_dataset=DatasetFromAnnos(csv_file=args.csv_file,transform=image_transforms['train'])
 train_size=int(len(full_dataset)*0.8)
 val_size=len(full_dataset)-train_size
 train_dataset,val_dataset=torch.utils.data.random_split(full_dataset,[train_size,val_size])
@@ -164,18 +94,7 @@ val_data = DataLoader(val_dataset,batch_size=BATCH_SIZE,sampler=valsampler,num_w
 print("Train size:",len(train_dataset),"; val size:",len(val_dataset))
 
 
-resnet50 = models.resnet50(pretrained=True)
-fc_inputs = resnet50.fc.in_features
-resnet50.fc = nn.Sequential(
-    nn.Linear(fc_inputs, 512),
-    nn.ReLU(),
-    nn.Linear(512, NUM_CLASS),
-    # nn.LogSoftmax(dim=1)
-)
-
-###
-# new_model = torch.load("food_test.pt")
-# torch.save(new_model.module.state_dict(),"model_for_test.pt")
+resnet50 = LoadModel(name="resnet50",num_class=NUM_CLASS)
 
 
 # Distributed to device
@@ -188,60 +107,6 @@ loss_function = nn.CrossEntropyLoss().cuda()
 optimizer = optim.SGD(resnet50.parameters(),lr=LR,momentum=0.9)
 scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=10,gamma=0.1)
 
-def accuracy(output, target, topk=(1, )):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
-
-def WarmUp(model,optimizer,target_lr,iter):
-    # 关于warmup的复现
-    if(args.local_rank==0):
-        print("Warm up for iterations of:",str(iter))
-    model.train()
-    begin_lr=1e-6
-    n_iter=0
-    while(n_iter < iter):
-        for i, (inputs, labels) in enumerate(train_data):
-            # Set learning rate by iter
-            # and update lr to warm up learning
-            lr=begin_lr+n_iter*(target_lr-begin_lr)/iter
-            optimizer.param_groups[0]['lr']=lr
-            n_iter += 1
-            if(args.local_rank==0):
-                info="iter:\t{}\tlr:\t{:.5f}".format(n_iter,lr)
-                print('\r', info, end='', flush=True)
-            if(n_iter>iter):
-                break
-            inputs = inputs.cuda()
-            labels = labels.cuda()
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = loss_function(outputs, labels)
-            loss.backward()
-            reduce_loss(loss, global_rank, world_size)
-            optimizer.step()
-    return 0
-
-def getAcc(outputs,labels,batchsize):
-    # 通过outputs和labels计算top1 / top3
-    ret, predictions = torch.max(outputs, 1)
-    correct_counts = torch.eq(predictions, labels).sum().float().item()
-    acc1 = correct_counts/batchsize
-    maxk = max((1,3))
-    ret,predictions = outputs.topk(maxk,1,True,True)
-    predictions = predictions.t()
-    correct_counts = predictions.eq(labels.view(1,-1).expand_as(predictions)).sum().item()
-    acc_topk = correct_counts/batchsize
-    return acc1,acc_topk
 
 
 
@@ -321,14 +186,7 @@ def train_and_valid(model, optimizer, epochs=25):
             # New Cal of ACC
             record_freq=20
             if(i%record_freq==record_freq-1 and args.local_rank==0):
-                # ret, predictions = torch.max(outputs, 1)
-                # correct_counts = torch.eq(predictions, labels).sum().float().item()
-                # acc1 = correct_counts/inputs.size(0)
-                # maxk = max((1,3))
-                # ret,predictions = outputs.topk(maxk,1,True,True)
-                # predictions = predictions.t()
-                # correct_counts = predictions.eq(labels.view(1,-1).expand_as(predictions)).sum().item()
-                # acc_topk = correct_counts/inputs.size(0)
+
                 acc1,acc_topk=getAcc(outputs,labels,inputs.size(0))
                 #etaTime=(time.time()-ttime)*(len(train_data)-i)/record_freq # not accurate
                 loss=loss.mean()
@@ -342,7 +200,7 @@ def train_and_valid(model, optimizer, epochs=25):
 
         # 测试结果
         ValidModel(model,epoch)
-        torch.save(model, output_file_path+"/food"+str(epoch+1)+'.pt')
+        torch.save(model.module.state_dict(), output_file_path+"/food"+str(epoch+1)+'.pt')
 
         scheduler.step()
         

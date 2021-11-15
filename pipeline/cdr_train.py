@@ -21,6 +21,8 @@ import glob
 from PIL import Image
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+from utils.Model import LoadTransforms,LoadModel,ImageFolderMy
 warnings.filterwarnings('ignore')
 
 
@@ -63,30 +65,7 @@ learning_rate = args.lr
 NUM_CLASS = args.num_class
 
 
-class ImageFolderMy(torch.utils.data.Dataset):
-    def __init__(self,root,transform,imgsLimited=1000):
-        classes=glob.glob(root+"/*")
-        self.transform=transform
-        self.imgs=[]
-        self.labels=[]
-        for i in range(len(classes)):
-            one=classes[i]
-            imgs=glob.glob(one+'/*.jpg')
-            if(len(imgs)>imgsLimited):
-                imgs=imgs[:imgsLimited]
-            #print("img len:",len(imgs))
-            labels=[i for _ in range(len(imgs))]
-            #print("img len:",len(labels))
-            self.imgs+=imgs
-            self.labels+=labels
-    def __getitem__(self,index):
-        img=self.imgs[index]
-        label=self.labels[index]
-        img=Image.open(img).convert('RGB')
-        img=self.transform(img)
-        return img,label
-    def __len__(self):
-        return len(self.labels)
+
 # load dataset
 def load_data(args):
     np.random.seed(args.seed)
@@ -104,32 +83,11 @@ def load_data(args):
         args.num_gradual = 20
         args.train_len = int(50000 * 0.9)
 
-        image_transforms = {
-            'train':transforms.Compose([
-                #transforms.ToPILImage(),
-                transforms.RandomResizedCrop(size=256, scale=(0.8, 1.0)),
-                transforms.RandomRotation(degrees=15),
-                transforms.RandomHorizontalFlip(),
-                transforms.CenterCrop(size=224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406],
-                                    [0.229, 0.224, 0.225])
-            ]),
-            'val':transforms.Compose([
-                transforms.Resize(size=256),
-                transforms.CenterCrop(size=224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406],
-                                    [0.229, 0.224, 0.225])
-            ])
-        }
-
+        image_transforms = LoadTransforms()
 
         folder=args.folder
         full_dataset=ImageFolderMy(root=folder,transform=image_transforms['train'])
         train_dataset=full_dataset
-
-
         args.train_len=len(train_dataset)
         
     return train_dataset
@@ -222,10 +180,7 @@ def train(train_loader, epoch, model1, optimizer1, args):
         #ind=indexes.cpu().numpy().transpose()
         data = data.cuda()
         labels = labels.cuda()
-        # Forward + Backward + Optimize
-        #logits1=model1(data)
-        #prec1, = accuracy(logits1, labels, topk=(1, ))
-        #prec1,prec3=getAcc(logits1,labels,labels.size(0))
+
         train_total+=1
         
         # Loss transfer 
@@ -296,31 +251,11 @@ def main(args):
 
     ###########
     #  此处加载模型 修改
-
-    # el
-    if args.dataset == 'food':
-        # TODO 如果无法使用timm库，可加载torchvision的预训练模型
-        clf1=tv_models.resnet50(pretrained=True)
-        fc_inputs = clf1.fc.in_features
-        clf1.fc = nn.Sequential(
-            nn.Linear(fc_inputs, 512),
-            nn.ReLU(),
-            nn.Linear(512, NUM_CLASS),
-            nn.LogSoftmax(dim=1)
-        )
-        #clf1 = timm.create_model('tresnet_m_miil_in21k', pretrained=True,num_classes=NUM_CLASS)
-        #clf1 = timm.create_model('resnest101e', pretrained=True,num_classes=NUM_CLASS)
-        optimizer1 = torch.optim.SGD(clf1.parameters(), lr=learning_rate,momentum=0.9)
-        scheduler1 = MultiStepLR(optimizer1, milestones=[10, 20], gamma=0.1)
+    clf1=LoadModel(name="resnet50",num_class=args.num_class)
+    optimizer1 = torch.optim.SGD(clf1.parameters(), lr=learning_rate,momentum=0.9)
+    scheduler1 = MultiStepLR(optimizer1, milestones=[10, 20], gamma=0.1)
 
     clf1.cuda()
-    
-
-    epoch = 0
-    train_acc1 = 0
-   
-    val_acc_list = []
-    test_acc_list = []  
     
     for epoch in range(0, args.n_epoch):
         scheduler1.step()
