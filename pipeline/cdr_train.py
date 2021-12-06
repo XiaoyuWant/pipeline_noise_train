@@ -49,10 +49,10 @@ parser.add_argument('--split_percentage', type=float, help='train and validation
 parser.add_argument('--gpu', type=int, help='ind of gpu', default=0)
 parser.add_argument('--weight_decay', type=float, help='l2', default=1e-3)
 parser.add_argument('--momentum', type=int, help='momentum', default=0.9)
-parser.add_argument('--batch_size', type=int, help='batch_size', default=128)
+parser.add_argument('--batch_size', type=int, help='batch_size', default=32)
 parser.add_argument('--train_len', type=int, help='the number of training data', default=54000)
 parser.add_argument('--folder',type=str,help="path of train data")
-parser.add_argument('--output_dir',type=str,help="path of output model")
+parser.add_argument('--output_dir',type=str,default="output",help="path of output model")
 args = parser.parse_args()
 
 print(args)
@@ -75,16 +75,7 @@ def load_data(args):
     #######
     # dataloader 
     if args.dataset=='food':
-        args.channel = 3
-        args.num_classes = NUM_CLASS
-        args.feature_size = 3 * 32 * 32
-        args.n_epoch = 200
-        #args.batch_size = 64*2
-        args.num_gradual = 20
-        args.train_len = int(50000 * 0.9)
-
         image_transforms = LoadTransforms()
-
         folder=args.folder
         full_dataset=ImageFolderMy(root=folder,transform=image_transforms['train'])
         train_dataset=full_dataset
@@ -182,9 +173,6 @@ def train(train_loader, epoch, model1, optimizer1, args):
         labels = labels.cuda()
 
         train_total+=1
-        
-        # Loss transfer 
-
         prec1,prec3, loss = train_one_step(model1, data, labels, optimizer1, nn.CrossEntropyLoss(), clip, clip)
         train_correct+=prec1
         if (i+1) % args.print_freq == 0:
@@ -265,7 +253,7 @@ def main(args):
         train_acc1 = train(train_loader, epoch, clf1, optimizer1, args)
 
         # save model:
-        torch.save(clf1.state_dict(),output_dir+"/"+str(epoch)+".pth")
+        torch.save(clf1.state_dict(),output_dir+"/cdr"+str(epoch)+".pth")
 
         # save record
         with open(output_dir+"/output.txt",'a') as f:

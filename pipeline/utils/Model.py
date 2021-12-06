@@ -1,7 +1,29 @@
 
-import torch
-from torchvision import datasets, models,transforms
 import timm
+import glob
+from functools import total_ordering
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
+import torchvision.transforms as transforms
+
+from torchvision import datasets, models, transforms
+
+from torch.optim.lr_scheduler import MultiStepLR
+import torch.backends.cudnn as cudnn
+import torchvision.models as tv_models
+import torch.optim as optim
+import argparse, sys
+import numpy as np
+import datetime
+import time
+import warnings
+import glob
+from PIL import Image
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def LoadModel(name="resnet50",num_class=100,use_weight=False,weight_path=""):
     if(name=="resnet50"):
@@ -129,5 +151,31 @@ class ImageFolderMy(torch.utils.data.Dataset):
         img=Image.open(img).convert('RGB')
         img=self.transform(img)
         return img,label
+    def __len__(self):
+        return len(self.labels)
+
+class ImageFolderGenLabel(torch.utils.data.Dataset):
+    def __init__(self,root,transform,imgsLimited=1000):
+        classes=glob.glob(root+"/*")
+        self.transform=transform
+        self.imgs=[]
+        self.labels=[]
+        for i in range(len(classes)):
+            one=classes[i]
+            imgs=glob.glob(one+'/*.jpg')
+            if(len(imgs)>imgsLimited):
+                imgs=imgs[:imgsLimited]
+            #print("img len:",len(imgs))
+            labels=[i for _ in range(len(imgs))]
+            #print("img len:",len(labels))
+            self.imgs+=imgs
+            self.labels+=labels
+    def __getitem__(self,index):
+        img=self.imgs[index]
+        imgname=img
+        label=self.labels[index]
+        img=Image.open(img).convert('RGB')
+        img=self.transform(img)
+        return img,label,imgname
     def __len__(self):
         return len(self.labels)

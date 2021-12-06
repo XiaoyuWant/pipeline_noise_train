@@ -23,7 +23,7 @@ import random
 from PIL import Image
 from PIL import ImageFile
 import pandas as pd
-from utils.Model import LoadTransforms,DatasetFromAnnos,ImageFolderMy,getAcc
+from utils.Model import LoadTransforms,DatasetFromAnnos,ImageFolderMy,getAcc,LoadModel
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 

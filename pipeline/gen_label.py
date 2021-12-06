@@ -28,7 +28,7 @@ import pandas as pd
 from tqdm import tqdm
 import os
 
-from utils.Model import LoadTransforms,LoadModel,ImageFolderMy
+from utils.Model import LoadTransforms,LoadModel,ImageFolderGenLabel
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 image_transforms = LoadTransforms()
@@ -41,7 +41,7 @@ def GenerateCleanDataset(model_path,out_file,dataset_path):
     
     model=model.cuda()
     
-    dataset=ImageFolderMy(root=dataset_path,transform=image_transforms['val'])
+    dataset=ImageFolderGenLabel(root=dataset_path,transform=image_transforms['val'])
     dataloader= torch.utils.data.DataLoader(dataset=dataset,
                                                batch_size=32,
                                                num_workers=4,
