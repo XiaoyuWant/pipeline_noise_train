@@ -2,4 +2,4 @@ CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 f
 --csv_file_path output/annos_of_1340.csv \
 --num_class 1340 \
 --model efficientnet \
---batchsize 16
+--batchsize 64

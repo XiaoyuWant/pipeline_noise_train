@@ -36,7 +36,7 @@ parser.add_argument('--model',type=str,default='resnet50')
 parser.add_argument('--batchsize',type=int,default=32)
 parser.add_argument('--csv_file_path',type=str,default="")
 parser.add_argument('--lr',type=float,default=0.01)
-parser.add_argument('--num_class',type=int,default=32)
+parser.add_argument('--num_class',type=int,default=128)
 parser.add_argument('--num_epoch',type=int,default=80)
 parser.add_argument('--output_file_path',type=str,default="output")
 
@@ -86,9 +86,10 @@ train_dataset,val_dataset=torch.utils.data.random_split(full_dataset,[train_size
 
 trainsampler = DistributedSampler(train_dataset,rank=args.local_rank)
 valsampler = DistributedSampler(val_dataset,rank=args.local_rank)
-
-train_data = DataLoader(train_dataset,batch_size=BATCH_SIZE,sampler=trainsampler,num_workers=4,pin_memory=True)
-val_data = DataLoader(val_dataset,batch_size=BATCH_SIZE,sampler=valsampler,num_workers=4,pin_memory=True)
+train_batch_sampler = torch.utils.data.BatchSampler(
+        trainsampler, BATCH_SIZE, drop_last=True)
+train_data = DataLoader(train_dataset,batch_sampler=train_batch_sampler,num_workers=16,pin_memory=True)
+val_data = DataLoader(val_dataset,batch_size=BATCH_SIZE,sampler=valsampler,num_workers=16,pin_memory=True)
 print("Train size:",len(train_dataset),"; val size:",len(val_dataset))
 
 
@@ -97,7 +98,7 @@ resnet50 = LoadModel(name=args.model,num_class=NUM_CLASS)
 
 # Distributed to device
 resnet50.cuda()
-resnet50 = torch.nn.SyncBatchNorm.convert_sync_batchnorm(resnet50)
+# resnet50 = torch.nn.SyncBatchNorm.convert_sync_batchnorm(resnet50)
 resnet50 = DDP(resnet50, device_ids=[args.local_rank], output_device=args.local_rank)
 
 # LOSS OPTIMIZER
@@ -166,7 +167,7 @@ def train_and_valid(model, optimizer, epochs=25):
             print("This epoch is {} iterations".format(len(train_data)))
         model.train()
         # 更改trainloader_sampler
-        train_data.sampler.set_epoch(epoch)
+        # train_data.sampler.set_epoch(epoch)
         
         ttime=time.time()
         record_freq=20
