@@ -20,6 +20,7 @@ import numpy as np
 import datetime
 import time
 import warnings
+import pandas as pd
 import glob
 from PIL import Image
 from PIL import ImageFile
@@ -37,6 +38,8 @@ def LoadModel(name="resnet50",num_class=100,use_weight=False,weight_path=""):
         )
     if(name=="resnest101e"):
         model=timm.create_model('resnest101e', pretrained=True,num_classes=num_class)
+    if(name=="efficientnet"):
+        model=timm.create_model('efficientnet_b3', pretrained=True,num_classes=num_class)
     
     if(use_weight==True):
         model.load_state_dict(torch.load(weight_path))
@@ -111,13 +114,13 @@ def WarmUp(model,optimizer,target_lr,iter):
 
 class DatasetFromAnnos(torch.utils.data.Dataset):
     def __init__(self,csv_file,transform):
-        csv=pd.read_csv(args.csv_file_path,sep=',')
+        csv=pd.read_csv(csv_file,sep=',')
         self.transform=transform
         self.img_list=csv.filepath.tolist()
         self.label_list=csv.label.tolist()
     def __getitem__(self,index):
         #print("FILE:{}".format(self.imgs[index]))
-        img=self.img_list[index]
+        img="/root/dataset/refresh1000/"+self.img_list[index]
         label=self.label_list[index]
         img=Image.open(img).convert('RGB')
         img=self.transform(img)

@@ -32,7 +32,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--local_rank', type=int, help="local gpu id")
 parser.add_argument('--world_size', type=int, help="num of processes")
 parser.add_argument('--dataset_folder',type= str,default='/root/dataset/limit/', help="num of processes")
-parser.add_argument('--model',type=str,default='tresnet')
+parser.add_argument('--model',type=str,default='resnet50')
 parser.add_argument('--batchsize',type=int,default=32)
 parser.add_argument('--csv_file_path',type=str,default="")
 parser.add_argument('--lr',type=float,default=0.01)
@@ -64,9 +64,7 @@ def reduce_loss(tensor, rank, world_size):
 
 
 # THIS IS DATASET PATH AND PARAMS
-Folder=args.folder
-trainDatapath=Folder+'Train'
-valDatapath=Folder+'Val'
+
 BATCH_SIZE = args.batchsize
 NUM_CLASS = args.num_class
 LR = args.lr
@@ -81,7 +79,7 @@ image_transforms = LoadTransforms()
 # 2-8 分割
 
 #full_dataset=DatasetFromAnnos(root=trainDatapath,transform=image_transforms['train'])
-full_dataset=DatasetFromAnnos(csv_file=args.csv_file,transform=image_transforms['train'])
+full_dataset=DatasetFromAnnos(csv_file=args.csv_file_path,transform=image_transforms['train'])
 train_size=int(len(full_dataset)*0.8)
 val_size=len(full_dataset)-train_size
 train_dataset,val_dataset=torch.utils.data.random_split(full_dataset,[train_size,val_size])
@@ -94,7 +92,7 @@ val_data = DataLoader(val_dataset,batch_size=BATCH_SIZE,sampler=valsampler,num_w
 print("Train size:",len(train_dataset),"; val size:",len(val_dataset))
 
 
-resnet50 = LoadModel(name="resnet50",num_class=NUM_CLASS)
+resnet50 = LoadModel(name=args.model,num_class=NUM_CLASS)
 
 
 # Distributed to device
@@ -103,7 +101,7 @@ resnet50 = torch.nn.SyncBatchNorm.convert_sync_batchnorm(resnet50)
 resnet50 = DDP(resnet50, device_ids=[args.local_rank], output_device=args.local_rank)
 
 # LOSS OPTIMIZER
-loss_function = nn.CrossEntropyLoss().cuda()
+loss_function = nn.CrossEntropyLoss()
 optimizer = optim.SGD(resnet50.parameters(),lr=LR,momentum=0.9)
 scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=10,gamma=0.1)
 
@@ -153,7 +151,7 @@ def ValidModel(model,epoch):
                         epoch,top1_of_val*100,top3_of_val*100,loss_of_val
                     ))
             # 保存记录
-            with open(args.output_file_path+"/output.txt",'a') as f:
+            with open(args.output_file_path+"/finetune.txt",'a') as f:
                 text="Epoch{}\tTop1:\t{}\tTop3:\t{}\n".format(epoch,top1_of_val*100,top3_of_val*100 )
                 f.write(text)
     
@@ -171,20 +169,21 @@ def train_and_valid(model, optimizer, epochs=25):
         train_data.sampler.set_epoch(epoch)
         
         ttime=time.time()
+        record_freq=20
         for i, (inputs, labels) in enumerate(train_data):
-            inputs = inputs.cuda(non_blocking=True)
-            labels = labels.cuda(non_blocking=True)
+            inputs = inputs.cuda()
+            labels = labels.cuda()
             #print("batchsize:{}\tsingle card size:{}".format(args.batchsize,inputs.size(0)))
             #因为这里梯度是累加的，所以每次记得清零
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = loss_function(outputs, labels)
-            #torch.distributed.barrier()
+            torch.distributed.barrier()
             loss.backward()
             optimizer.step()
             
             # New Cal of ACC
-            record_freq=20
+            
             if(i%record_freq==record_freq-1 and args.local_rank==0):
 
                 acc1,acc_topk=getAcc(outputs,labels,inputs.size(0))
@@ -200,14 +199,14 @@ def train_and_valid(model, optimizer, epochs=25):
 
         # 测试结果
         ValidModel(model,epoch)
-        torch.save(model.module.state_dict(), output_file_path+"/food"+str(epoch+1)+'.pt')
+        torch.save(model.module.state_dict(), args.output_file_path+"/food"+str(epoch+1)+'.pt')
 
         scheduler.step()
         
     return model
 
 
-if __name__='__main__':
+if __name__=='__main__':
 
 
     trained_model= train_and_valid(resnet50, optimizer, NUM_EPOCH)
